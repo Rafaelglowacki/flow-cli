@@ -78,13 +78,13 @@ class PlaywrightBackend(Backend):
 
             # Presença explícita de botão de entrar / sign in
             sign_in_btn = page.query_selector(
-                'a[href*="accounts.google.com"], button:has-text("Sign in"), button:has-text("Fazer login"), button:has-text("Entrar")'
+                'button:has-text("Sign in"), button:has-text("Fazer login"), button:has-text("Entrar")'
             )
             if sign_in_btn is not None:
                 return False
 
             # Se permaneceu em flow.google.com sem prompt de login
-            if "flow.google.com" in page.url:
+            if "flow.google.com" in page.url and "accounts.google.com" not in page.url:
                 return True
 
             return False
@@ -109,7 +109,7 @@ class PlaywrightBackend(Backend):
                 current_url = page.url
                 if "accounts.google.com" not in current_url and "flow.google.com" in current_url:
                     sign_in_btn = page.query_selector(
-                        'a[href*="accounts.google.com"], button:has-text("Sign in"), button:has-text("Fazer login"), button:has-text("Entrar")'
+                        'button:has-text("Sign in"), button:has-text("Fazer login"), button:has-text("Entrar")'
                     )
                     if sign_in_btn is None:
                         # Login concluído
