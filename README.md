@@ -20,11 +20,11 @@ playwright install chromium
 
 Todos os comandos aceitam `--json` global para saída estruturada em JSON.
 
-Comandos da versão 0.1 (*marcados como stub na Fatia 1*):
+Comandos da versão 0.1 (*auth implementado na Fatia 2*):
 
-- `flow auth login` *(stub)*: abre o navegador para login manual no Google Flow
-- `flow auth status` *(stub)*: status da autenticação/perfil
-- `flow auth logout` *(stub)*: limpa a sessão local
+- `flow auth login`: abre o navegador para login manual no Google Flow
+- `flow auth status`: status da autenticação/perfil
+- `flow auth logout [--yes]`: encerra a sessão ativa e remove o diretório do perfil
 - `flow projects list` *(stub)*: lista projetos
 - `flow projects create <nome>` *(stub)*: cria novo projeto
 - `flow projects open <id>` *(stub)*: abre projeto no navegador

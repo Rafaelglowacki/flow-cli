@@ -39,10 +39,6 @@ def test_stub_json_error():
 
 def test_stubs_auth_and_projects():
     runner = CliRunner()
-    res_auth = runner.invoke(main, ["--json", "auth", "login"])
-    assert res_auth.exit_code == 2
-    assert "não implementado" in json.loads(res_auth.output)["error"].lower()
-
     res_proj = runner.invoke(main, ["--json", "projects", "list"])
     assert res_proj.exit_code == 2
     assert "não implementado" in json.loads(res_proj.output)["error"].lower()

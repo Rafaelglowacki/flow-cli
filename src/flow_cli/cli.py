@@ -1,6 +1,9 @@
+import shutil
 import click
 from flow_cli import __version__
-from flow_cli.output import fail
+from flow_cli.config import get_backend, profile_dir
+from flow_cli.output import emit, fail
+from flow_cli.browser_utils import FlowError
 
 
 def _stub(ctx: click.Context, name: str) -> None:
@@ -29,21 +32,60 @@ def auth() -> None:
 @click.pass_context
 def auth_login(ctx: click.Context) -> None:
     """Abre navegador para login manual no Google Flow."""
-    _stub(ctx, "auth login")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=False)
+    try:
+        backend.open_login()
+        if as_json:
+            emit({"logged_in": True}, as_json=True)
+        else:
+            emit("Login realizado com sucesso no Google Flow.", as_json=False)
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao abrir login: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 @auth.command("status")
 @click.pass_context
 def auth_status(ctx: click.Context) -> None:
     """Exibe status da sessão atual."""
-    _stub(ctx, "auth status")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=True)
+    try:
+        logged = backend.is_logged_in()
+        if as_json:
+            emit({"logged_in": logged}, as_json=True)
+        else:
+            emit("Logado" if logged else "Não logado", as_json=False)
+    finally:
+        backend.close()
 
 
 @auth.command("logout")
+@click.option("--yes", is_flag=True, default=False, help="Confirma o encerramento da sessão e remoção do perfil.")
 @click.pass_context
-def auth_logout(ctx: click.Context) -> None:
+def auth_logout(ctx: click.Context, yes: bool) -> None:
     """Encerra a sessão ativa e remove perfil."""
-    _stub(ctx, "auth logout")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    if not yes:
+        fail("Confirmação necessária. Use --yes para encerrar sessão e remover perfil.", as_json=as_json)
+
+    backend = get_backend(ctx.obj)
+    try:
+        backend.logout()
+        p_dir = profile_dir()
+        if p_dir.exists():
+            shutil.rmtree(p_dir, ignore_errors=True)
+
+        if as_json:
+            emit({"logged_out": True}, as_json=True)
+        else:
+            emit("Sessão encerrada e perfil removido com sucesso.", as_json=False)
+    finally:
+        backend.close()
 
 
 # --- projects ---
