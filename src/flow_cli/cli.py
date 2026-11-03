@@ -1,9 +1,13 @@
+from pathlib import Path
+import shlex
 import shutil
+import webbrowser
 import click
 from flow_cli import __version__
 from flow_cli.config import get_backend, profile_dir
 from flow_cli.output import emit, fail
 from flow_cli.browser_utils import FlowError
+from flow_cli.parsers import project_url
 
 
 def _stub(ctx: click.Context, name: str) -> None:
@@ -18,7 +22,10 @@ def _stub(ctx: click.Context, name: str) -> None:
 def main(ctx: click.Context, as_json: bool) -> None:
     """flow - CLI não oficial para o Google Flow."""
     ctx.ensure_object(dict)
-    ctx.obj["as_json"] = as_json
+    # Se já foi configurado (ex: pelo REPL herdando ctx.obj), respeita se as_json for True
+    if as_json or "as_json" not in ctx.obj:
+        ctx.obj["as_json"] = as_json
+
 
 
 # --- auth ---
@@ -117,15 +124,42 @@ def projects_list(ctx: click.Context) -> None:
 @click.pass_context
 def projects_create(ctx: click.Context, nome: str) -> None:
     """Cria um novo projeto."""
-    _stub(ctx, "projects create")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=True)
+    try:
+        data = backend.create_project(name=nome)
+        if as_json:
+            emit(data, as_json=True)
+        else:
+            emit(f"Projeto criado: {data['id']} ({data['url']})", as_json=False)
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao criar projeto: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 @projects.command("open")
 @click.argument("id")
+@click.option("--browser", is_flag=True, default=False, help="Abre o projeto no navegador padrão do sistema.")
 @click.pass_context
-def projects_open(ctx: click.Context, id: str) -> None:
+def projects_open(ctx: click.Context, id: str, browser: bool) -> None:
     """Abre projeto no navegador."""
-    _stub(ctx, "projects open")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    try:
+        url = project_url(id)
+        if browser:
+            webbrowser.open(url)
+        if as_json:
+            emit({"id": id, "url": url}, as_json=True)
+        else:
+            emit(url, as_json=False)
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao abrir projeto: {exc}", as_json=as_json)
+
 
 
 # --- models ---
@@ -214,10 +248,26 @@ def media_list(ctx: click.Context, project_id: str | None, kind: str | None) -> 
 @media.command("download")
 @click.argument("id")
 @click.option("--out", "out_dir", type=click.Path(), help="Diretório de destino.")
+@click.option("--project", "project_id", help="ID do projeto.")
 @click.pass_context
-def media_download(ctx: click.Context, id: str, out_dir: str | None) -> None:
+def media_download(ctx: click.Context, id: str, out_dir: str | None, project_id: str | None) -> None:
     """Baixa mídia pelo ID."""
-    _stub(ctx, "media download")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    destination = Path(out_dir) if out_dir else Path.cwd() / "flow-downloads"
+    backend = get_backend(ctx.obj, headless=True)
+    try:
+        data = backend.download_media(media_id=id, out_dir=destination, project_id=project_id)
+        if as_json:
+            emit(data, as_json=True)
+        else:
+            emit(f"Baixado: {data['path']}", as_json=False)
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao baixar mídia: {exc}", as_json=as_json)
+    finally:
+        backend.close()
+
 
 
 # --- generate ---
@@ -357,7 +407,47 @@ def generate_video(
 @click.pass_context
 def repl(ctx: click.Context) -> None:
     """Inicia modo interativo (REPL)."""
-    _stub(ctx, "repl")
+    while True:
+        try:
+            line = input("flow> ")
+        except EOFError:
+            break
+
+        line = line.strip()
+        if not line:
+            continue
+
+        if line in ("exit", "quit"):
+            break
+
+        if line == "help":
+            click.echo(main.get_help(ctx))
+            continue
+
+        try:
+            args = shlex.split(line)
+        except ValueError as err:
+            click.echo(f"Erro ao interpretar linha: {err}", err=True)
+            continue
+
+        if not args:
+            continue
+
+        if args[0] == "repl":
+            click.echo("Não é permitido executar 'repl' dentro do repl.", err=True)
+            continue
+
+        try:
+            main.main(args, standalone_mode=False, obj=ctx.obj)
+        except SystemExit:
+            pass
+        except click.ClickException as exc:
+            click.echo(exc.format_message(), err=True)
+        except FlowError as exc:
+            click.echo(str(exc), err=True)
+        except Exception as exc:
+            click.echo(f"Erro: {exc}", err=True)
+
 
 
 if __name__ == "__main__":

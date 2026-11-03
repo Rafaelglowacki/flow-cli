@@ -9,11 +9,14 @@ from flow_cli.parsers import (
     parse_credits,
     parse_cost,
     project_id_from_href,
+    project_url,
     parse_reset,
     classify_media,
     is_standard_date,
     parse_model_names,
 )
+import re
+
 
 BASE_URL = "https://flow.google.com/"
 
@@ -82,6 +85,19 @@ class Backend(ABC):
     ) -> dict:
         """Configura e submete ou simula geração."""
         raise FlowError("não suportado por este backend")
+
+    def download_media(self, media_id: str, out_dir: Path, project_id: str | None = None) -> dict:
+        """Baixa mídia pelo ID."""
+        raise FlowError("não suportado por este backend")
+
+    def create_project(self, name: str | None = None) -> dict:
+        """Cria um novo projeto."""
+        raise FlowError("não suportado por este backend")
+
+    def project_url(self, project_id: str) -> str:
+        """Retorna a URL completa do projeto."""
+        return project_url(project_id)
+
 
 
 class PlaywrightBackend(Backend):
@@ -619,3 +635,209 @@ class PlaywrightBackend(Backend):
             if isinstance(exc, FlowError):
                 raise
             raise FlowError(f"Erro ao gerar {kind}: {exc}")
+
+    def create_project(self, name: str | None = None) -> dict:
+        """Cria um novo projeto via interface."""
+        page = self._ensure_browser(headless=self.headless)
+        try:
+            self._goto(page, BASE_URL)
+            btn_new = page.get_by_role("button", name="Novo projeto")
+            btn_new.click(timeout=10000)
+
+            page.wait_for_url(re.compile(r"/project/[0-9a-f-]{36}"), timeout=30000)
+            current_url = page.url
+            proj_id = project_id_from_href(current_url)
+            if not proj_id:
+                match = re.search(r"/project/([0-9a-f-]{36})", current_url)
+                proj_id = match.group(1) if match else None
+
+            if not proj_id:
+                raise FlowError("Falha ao obter ID do novo projeto criado.")
+
+            final_title = "Sem título"
+            if name:
+                # Clica no heading ou textbox editável e preenche com Enter apenas nele
+                title_box = page.get_by_role("textbox", name="Texto editável")
+                try:
+                    has_box = bool(title_box.count() > 0)
+                except Exception:
+                    has_box = False
+
+                if not has_box:
+                    try:
+                        title_heading = page.get_by_role("heading", level=1)
+                        if title_heading.count() > 0:
+                            title_heading.first.click(timeout=5000)
+                    except Exception:
+                        pass
+
+                try:
+                    if title_box.count() > 0:
+                        title_box.first.fill(name)
+                        title_box.first.press("Enter")
+                except Exception:
+                    pass
+                final_title = name
+            else:
+                try:
+                    h1 = page.get_by_role("heading", level=1).first
+                    final_title = (h1.inner_text() or "").strip() or "Sem título"
+                except Exception:
+                    pass
+
+            return {
+                "id": proj_id,
+                "title": final_title,
+                "url": f"https://flow.google.com/project/{proj_id}",
+            }
+        except Exception as exc:
+            if isinstance(exc, FlowError):
+                raise
+            raise FlowError(f"Erro ao criar projeto: {exc}")
+
+    def download_media(self, media_id: str, out_dir: Path, project_id: str | None = None) -> dict:
+        """Localiza e baixa mídia para out_dir."""
+        page = self._ensure_browser(headless=self.headless)
+        try:
+            if project_id:
+                p_ids = [project_id]
+            else:
+                projs = self.list_projects()
+                p_ids = [p["id"] for p in projs]
+
+            media_img = None
+            found_proj = None
+
+            for pid in p_ids:
+                url = f"https://flow.google.com/project/{pid}"
+                self._goto(page, url)
+                try:
+                    page.wait_for_selector("img[data-media-id]", timeout=10000)
+                except Exception:
+                    pass
+
+                target_sel = f'img[data-media-id="{media_id}"]'
+                loc = page.locator(target_sel)
+                if loc.count() > 0:
+                    media_img = loc.first
+                    found_proj = pid
+                    break
+
+            if media_img is None:
+                raise FlowError(f"Mídia '{media_id}' não encontrada em nenhum projeto verificado.")
+
+            # Verifica se cartão tem tag video ou ícone de play
+            group = media_img.locator("xpath=ancestor::*[@role='group'][1]")
+            has_video = False
+            video_src = None
+            try:
+                has_group = bool(group.count() > 0)
+            except Exception:
+                has_group = False
+
+            if has_group:
+                try:
+                    video_loc = group.locator("video, [data-icon='play'], button[aria-label*='play' i]")
+                    has_video = bool(video_loc.count() > 0)
+                except Exception:
+                    has_video = False
+
+                if has_video:
+                    try:
+                        v_elem = group.locator("video")
+                        if v_elem.count() > 0:
+                            video_src = v_elem.first.get_attribute("src")
+                    except Exception:
+                        pass
+
+
+            out_dir = Path(out_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            if not has_video:
+                # Imagem
+                src = media_img.get_attribute("src") or ""
+                if not src:
+                    raise FlowError(f"URL de imagem não encontrada para mídia '{media_id}'.")
+
+                if "=" in src:
+                    original_url = src.rsplit("=", 1)[0] + "=d"
+                else:
+                    original_url = src
+
+                response = self._context.request.get(original_url)
+                if response.status != 200:
+                    raise FlowError(f"Falha ao baixar imagem: status HTTP {response.status}")
+
+                body_bytes = response.body()
+                if not body_bytes:
+                    raise FlowError("Falha ao baixar imagem: corpo da resposta vazio.")
+
+                content_type = response.headers.get("content-type", "").lower()
+                ext = ".jpg"
+                if "png" in content_type:
+                    ext = ".png"
+                elif "webp" in content_type:
+                    ext = ".webp"
+
+                target_file = out_dir / f"{media_id}{ext}"
+                target_file.write_bytes(body_bytes)
+
+                return {
+                    "id": media_id,
+                    "path": str(target_file),
+                    "bytes": len(body_bytes),
+                    "kind": "image",
+                }
+            else:
+                # Vídeo
+                if video_src:
+                    response = self._context.request.get(video_src)
+                    if response.status == 200 and response.body():
+                        body_bytes = response.body()
+                        target_file = out_dir / f"{media_id}.mp4"
+                        target_file.write_bytes(body_bytes)
+                        return {
+                            "id": media_id,
+                            "path": str(target_file),
+                            "bytes": len(body_bytes),
+                            "kind": "video",
+                        }
+
+                # Fallback vídeo via download button na UI
+                card = group if group.count() > 0 else media_img
+                card.click(timeout=5000)
+
+                with page.expect_download(timeout=30000) as download_info:
+                    btn_download = page.get_by_role("button", name="Baixar mídia")
+                    if btn_download.count() > 0:
+                        btn_download.first.click(timeout=5000)
+                    else:
+                        raise FlowError("Botão 'Baixar mídia' não encontrado na interface.")
+
+                    # Se aparecer menu suspenso de download, escolhe primeiro item
+                    try:
+                        menu_items = page.get_by_role("menuitem")
+                        if menu_items.count() > 0:
+                            menu_items.first.click(timeout=3000)
+                    except Exception:
+                        pass
+
+                download = download_info.value
+                suggested_filename = download.suggested_filename or f"{media_id}.mp4"
+                target_file = out_dir / suggested_filename
+                download.save_as(str(target_file))
+
+                file_bytes = target_file.stat().st_size if target_file.exists() else 0
+                return {
+                    "id": media_id,
+                    "path": str(target_file),
+                    "bytes": file_bytes,
+                    "kind": "video",
+                }
+
+        except Exception as exc:
+            if isinstance(exc, FlowError):
+                raise
+            raise FlowError(f"Erro ao baixar mídia: {exc}")
+

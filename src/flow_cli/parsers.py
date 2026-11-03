@@ -69,6 +69,17 @@ def is_standard_date(text: str | None) -> bool:
     return bool(re.match(r"^[a-zA-Z]{3,4}\.?\s+\d{1,2}\s*[-–]\s*\d{1,2}:\d{2}$", text.strip()))
 
 
+_UUID_REGEX = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+
+def project_url(project_id: str | None) -> str:
+    """Valida UUID do projeto e retorna a URL completa no Google Flow."""
+    if not project_id or not _UUID_REGEX.match(project_id.strip()):
+        raise FlowError(f"ID de projeto inválido: '{project_id}'")
+    return f"https://flow.google.com/project/{project_id.strip()}"
+
+
+
 def classify_media(has_video: bool) -> Literal["video", "image"]:
     """Classifica tipo de mídia entre video e image."""
     return "video" if has_video else "image"

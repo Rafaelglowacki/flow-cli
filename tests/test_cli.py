@@ -28,22 +28,6 @@ def test_help_lists_all_groups():
         assert item in result.output
 
 
-def test_stub_json_error():
-    runner = CliRunner()
-    result = runner.invoke(main, ["--json", "repl"])
-    assert result.exit_code == 2
-    parsed = json.loads(result.output)
-    assert "error" in parsed
-    assert "não implementado" in parsed["error"].lower()
-
-
-def test_stubs_auth_and_projects():
-    runner = CliRunner()
-    res_proj = runner.invoke(main, ["--json", "projects", "create", "teste"])
-    assert res_proj.exit_code == 2
-    assert "não implementado" in json.loads(res_proj.output)["error"].lower()
-
-
 def test_validation_generate_count_rejected():
     runner = CliRunner()
     result = runner.invoke(main, ["generate", "image", "prompt test", "--count", "5"])
