@@ -1,6 +1,7 @@
 """Backends de automação e comunicação com o Flow."""
 from abc import ABC, abstractmethod
 from pathlib import Path
+import re
 import shutil
 import time
 from typing import Any
@@ -15,7 +16,6 @@ from flow_cli.parsers import (
     is_standard_date,
     parse_model_names,
 )
-import re
 
 
 BASE_URL = "https://flow.google.com/"
@@ -435,11 +435,71 @@ class PlaywrightBackend(Backend):
                         "name": aria_name,
                         "thumbnail": thumb_src,
                     })
+                if kind in (None, "video"):
+                    all_media.extend(self._list_video_tiles(page, pid, url))
             return all_media
         except Exception as exc:
             if isinstance(exc, FlowError):
                 raise
             raise FlowError(f"Erro ao listar mídias: {exc}")
+
+    def _list_video_tiles(self, page: Any, pid: str, url: str) -> list[dict]:
+        """Vídeos não têm data-media-id: o id vem da URL /edit/<id> ao abrir cada cartão."""
+        try:
+            self._goto(page, url)
+            tiles = page.locator("flow-video-tile")
+            tiles.first.wait_for(timeout=4000)
+        except Exception:
+            return []
+        found = []
+        for idx in range(tiles.count()):
+            if idx:
+                self._goto(page, url)
+                tiles.first.wait_for(timeout=8000)
+            tile = tiles.nth(idx)
+            name = ""
+            try:
+                grp = tile.locator("xpath=ancestor::*[@role='group'][1]")
+                name = (grp.first.get_attribute("aria-label") or "").strip()
+            except Exception:
+                pass
+            thumb = ""
+            try:
+                thumb = tile.locator("img").first.get_attribute("src") or ""
+            except Exception:
+                pass
+            tile.click(timeout=5000)
+            try:
+                page.wait_for_url(re.compile(r"/edit/[0-9a-f-]{36}"), timeout=10000)
+            except Exception:
+                continue
+            m = re.search(r"/edit/([0-9a-f-]{36})", page.url)
+            if m:
+                found.append({"id": m.group(1), "project": pid, "kind": "video",
+                              "name": name or "Sem título", "thumbnail": thumb})
+        return found
+
+    def _download_via_edit_page(self, page: Any, project_id: str, media_id: str, out_dir: Path) -> dict:
+        """Baixa mídia (vídeo) pela página /edit/<id> usando o botão 'Baixar mídia'."""
+        self._goto(page, f"https://flow.google.com/project/{project_id}/edit/{media_id}")
+        btn = page.get_by_role("button", name="Baixar mídia")
+        btn.first.wait_for(timeout=15000)
+        with page.expect_download(timeout=60000) as info:
+            btn.first.click(timeout=5000)
+            try:
+                orig = page.get_by_role("menuitem").filter(has_text="Tamanho original")
+                orig.first.wait_for(timeout=3000)
+                orig.first.click(timeout=3000)
+            except Exception:
+                pass
+        download = info.value
+        name = download.suggested_filename or f"{media_id}.mp4"
+        target = Path(out_dir) / name
+        download.save_as(str(target))
+        size = target.stat().st_size
+        if size == 0:
+            raise FlowError("Download vazio.")
+        return {"id": media_id, "path": str(target), "bytes": size, "kind": "video"}
 
     def _submit_generation(self, page: Any, confirm: bool) -> None:
         """Submete a geração clicando em 'Iniciar geração'. Isolado e protegido por confirm=True."""
@@ -723,8 +783,16 @@ class PlaywrightBackend(Backend):
                     found_proj = pid
                     break
 
+            if media_img is None and project_id:
+                Path(out_dir).mkdir(parents=True, exist_ok=True)
+                try:
+                    return self._download_via_edit_page(page, project_id, media_id, out_dir)
+                except FlowError:
+                    raise
+                except Exception:
+                    pass
             if media_img is None:
-                raise FlowError(f"Mídia '{media_id}' não encontrada em nenhum projeto verificado.")
+                raise FlowError(f"Mídia '{media_id}' não encontrada em nenhum projeto verificado (para vídeos use --project).")
 
             # Verifica se cartão tem tag video ou ícone de play
             group = media_img.locator("xpath=ancestor::*[@role='group'][1]")
