@@ -99,7 +99,17 @@ def projects() -> None:
 @click.pass_context
 def projects_list(ctx: click.Context) -> None:
     """Lista projetos existentes."""
-    _stub(ctx, "projects list")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=True)
+    try:
+        data = backend.list_projects()
+        emit(data, as_json=as_json, table_columns=["id", "title", "url"])
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao listar projetos: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 @projects.command("create")
@@ -130,7 +140,20 @@ def models() -> None:
 @click.pass_context
 def models_list(ctx: click.Context, kind: str | None) -> None:
     """Lista modelos suportados."""
-    _stub(ctx, "models list")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=True)
+    kind_lower = kind.lower() if kind else None
+    try:
+        data = backend.list_models(kind=kind_lower)
+        if kind_lower:
+            data = [m for m in data if m.get("kind", "").lower() == kind_lower]
+        emit(data, as_json=as_json, table_columns=["kind", "name"])
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao listar modelos: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 # --- credits ---
@@ -138,7 +161,25 @@ def models_list(ctx: click.Context, kind: str | None) -> None:
 @click.pass_context
 def credits_cmd(ctx: click.Context) -> None:
     """Consulta créditos disponíveis."""
-    _stub(ctx, "credits")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=True)
+    try:
+        data = backend.get_credits()
+        if as_json:
+            emit(data, as_json=True)
+        else:
+            credits_val = data.get("credits", 0)
+            reset_val = data.get("reset")
+            output_str = f"Créditos: {credits_val}"
+            if reset_val:
+                output_str += f"\nRedefinição do limite de uso: {reset_val}"
+            emit(output_str, as_json=False)
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao consultar créditos: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 # --- media ---
@@ -154,7 +195,20 @@ def media() -> None:
 @click.pass_context
 def media_list(ctx: click.Context, project_id: str | None, kind: str | None) -> None:
     """Lista mídias do projeto ou gerais."""
-    _stub(ctx, "media list")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    backend = get_backend(ctx.obj, headless=True)
+    kind_lower = kind.lower() if kind else None
+    try:
+        data = backend.list_media(project_id=project_id, kind=kind_lower)
+        if kind_lower:
+            data = [m for m in data if m.get("kind", "").lower() == kind_lower]
+        emit(data, as_json=as_json, table_columns=["id", "project", "kind", "name"])
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao listar mídias: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 @media.command("download")

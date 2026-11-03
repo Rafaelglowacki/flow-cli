@@ -30,7 +30,7 @@ def test_help_lists_all_groups():
 
 def test_stub_json_error():
     runner = CliRunner()
-    result = runner.invoke(main, ["--json", "credits"])
+    result = runner.invoke(main, ["--json", "repl"])
     assert result.exit_code == 2
     parsed = json.loads(result.output)
     assert "error" in parsed
@@ -39,7 +39,7 @@ def test_stub_json_error():
 
 def test_stubs_auth_and_projects():
     runner = CliRunner()
-    res_proj = runner.invoke(main, ["--json", "projects", "list"])
+    res_proj = runner.invoke(main, ["--json", "projects", "create", "teste"])
     assert res_proj.exit_code == 2
     assert "não implementado" in json.loads(res_proj.output)["error"].lower()
 
