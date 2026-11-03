@@ -245,7 +245,45 @@ def generate_image(
     yes: bool,
 ) -> None:
     """Gera imagem a partir do PROMPT."""
-    _stub(ctx, "generate image")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    cleaned_prompt = prompt.strip()
+    if not cleaned_prompt:
+        fail("O prompt não pode ser vazio.", as_json=as_json)
+
+    backend = get_backend(ctx.obj, headless=True)
+    try:
+        data = backend.generate(
+            "image",
+            cleaned_prompt,
+            project_id=project_id,
+            aspect=aspect,
+            model=model,
+            count=count,
+            confirm=yes,
+        )
+        if as_json:
+            emit(data, as_json=True)
+        else:
+            cost = data.get("cost", 0)
+            proj = data.get("project", "")
+            if not yes:
+                emit(
+                    f"Dry-run: esta geração usaria {cost} créditos (projeto {proj}). "
+                    f"Nada foi gerado. Use --yes para gerar.",
+                    as_json=False,
+                )
+            else:
+                emit(
+                    f"Geração enviada: {cost} créditos (projeto {proj}). "
+                    f"Acompanhe com `flow media list --project {proj}`.",
+                    as_json=False,
+                )
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao gerar imagem: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 @generate.command("video")
@@ -270,7 +308,48 @@ def generate_video(
     yes: bool,
 ) -> None:
     """Gera vídeo a partir do PROMPT."""
-    _stub(ctx, "generate video")
+    as_json = bool(ctx.obj and ctx.obj.get("as_json"))
+    cleaned_prompt = prompt.strip()
+    if not cleaned_prompt:
+        fail("O prompt não pode ser vazio.", as_json=as_json)
+
+    backend = get_backend(ctx.obj, headless=True)
+    duration_str = f"{duration}s" if duration and not duration.endswith("s") else duration
+    try:
+        data = backend.generate(
+            "video",
+            cleaned_prompt,
+            project_id=project_id,
+            aspect=aspect,
+            model=model,
+            resolution=resolution,
+            duration=duration_str,
+            count=count,
+            confirm=yes,
+        )
+        if as_json:
+            emit(data, as_json=True)
+        else:
+            cost = data.get("cost", 0)
+            proj = data.get("project", "")
+            if not yes:
+                emit(
+                    f"Dry-run: esta geração usaria {cost} créditos (projeto {proj}). "
+                    f"Nada foi gerado. Use --yes para gerar.",
+                    as_json=False,
+                )
+            else:
+                emit(
+                    f"Geração enviada: {cost} créditos (projeto {proj}). "
+                    f"Acompanhe com `flow media list --project {proj}`.",
+                    as_json=False,
+                )
+    except FlowError as err:
+        fail(str(err), as_json=as_json)
+    except Exception as exc:
+        fail(f"Erro ao gerar vídeo: {exc}", as_json=as_json)
+    finally:
+        backend.close()
 
 
 # --- repl ---

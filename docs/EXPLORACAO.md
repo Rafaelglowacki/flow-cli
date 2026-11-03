@@ -73,3 +73,6 @@ Tudo abaixo foi lido da interface logada (PT-BR) sem gerar nada. Fonte dos texto
 - Download: o botão "Baixar mídia" existe no detalhe; o CLI tenta o arquivo original pela URL `/asb/...` da miniatura, com cookies da sessão.
 - Distinção imagem/vídeo na lista de mídias não verificada com vídeo real.
 - Criar projeto e gerar de verdade não foram exercitados ao vivo (efeitos na conta/créditos).
+
+### Custo ao vivo via `flow generate` (dry-run, verificado)
+O dry-run lê o custo do `flow-prompt-box-settings` depois de ~1,5s e só aceita a leitura quando duas leituras seguidas coincidem (a UI atualiza com atraso). Exemplos medidos (720p): Omni 1.1 Flash 4s x1 = 7, 8s x2 = 24, 10s x1 = 15; Veo 3.1 - Fast 4s x1 = 20; Nano Banana 2.1 x2 = 0. Alguns modelos (ex. Veo 3.1 - Fast) não têm o radio de resolução; o CLI ignora a opção indisponível. O envio real (`--yes`) só foi exercitado com dupla de teste.

@@ -7,6 +7,7 @@ from typing import Any
 from flow_cli.browser_utils import FlowError
 from flow_cli.parsers import (
     parse_credits,
+    parse_cost,
     project_id_from_href,
     parse_reset,
     classify_media,
@@ -64,6 +65,22 @@ class Backend(ABC):
 
     def list_media(self, project_id: str | None = None, kind: str | None = None) -> list[dict]:
         """Lista mídias de projetos."""
+        raise FlowError("não suportado por este backend")
+
+    def generate(
+        self,
+        kind: str,
+        prompt: str,
+        *,
+        project_id: str | None = None,
+        aspect: str | None = None,
+        model: str | None = None,
+        count: int = 1,
+        resolution: str | None = None,
+        duration: str | None = None,
+        confirm: bool = False,
+    ) -> dict:
+        """Configura e submete ou simula geração."""
         raise FlowError("não suportado por este backend")
 
 
@@ -407,3 +424,198 @@ class PlaywrightBackend(Backend):
             if isinstance(exc, FlowError):
                 raise
             raise FlowError(f"Erro ao listar mídias: {exc}")
+
+    def _submit_generation(self, page: Any, confirm: bool) -> None:
+        """Submete a geração clicando em 'Iniciar geração'. Isolado e protegido por confirm=True."""
+        if not confirm:
+            raise FlowError("Confirmação necessária para envio de geração. Clique abortado.")
+        submit_btn = page.get_by_role("button", name="Iniciar geração")
+        submit_btn.click()
+
+    def _read_generation_cost(self, page: Any) -> int:
+        """Lê o custo de geração de forma estável, tentando elemento de configurações, overlay e body."""
+        last_cost: int | None = None
+
+        for attempt in range(6):
+            if attempt > 0:
+                time.sleep(0.7)
+
+            popup_text = ""
+            # Elemento do popup de configurações
+            try:
+                elem = page.locator("flow-prompt-box-settings").first
+                popup_text = elem.inner_text() or ""
+            except Exception:
+                popup_text = ""
+
+            # Fallback para o overlay
+            if not popup_text or "crédito" not in popup_text.lower():
+                try:
+                    overlay = page.locator(".cdk-overlay-pane").last
+                    popup_text = overlay.inner_text() or ""
+                except Exception:
+                    popup_text = ""
+
+            # Fallback para body
+            if not popup_text or "crédito" not in popup_text.lower():
+                try:
+                    popup_text = page.locator("body").inner_text() or ""
+                except Exception:
+                    popup_text = ""
+
+            try:
+                current_cost = parse_cost(popup_text)
+            except Exception:
+                current_cost = None
+
+            if current_cost is not None:
+                if last_cost is not None and current_cost == last_cost:
+                    return current_cost
+                last_cost = current_cost
+
+        if last_cost is not None:
+            return last_cost
+
+        raise FlowError(f"Falha ao ler custo de geração: texto '{popup_text}' não contém custo válido")
+
+    def generate(
+        self,
+        kind: str,
+        prompt: str,
+        *,
+        project_id: str | None = None,
+        aspect: str | None = None,
+        model: str | None = None,
+        count: int = 1,
+        resolution: str | None = None,
+        duration: str | None = None,
+        confirm: bool = False,
+    ) -> dict:
+        """Configura o chip, preenche o prompt, lê o custo e envia se confirm for True."""
+        page = self._ensure_browser(headless=self.headless)
+        try:
+            # 1. Resolve projeto
+            target_project_id = project_id
+            if not target_project_id:
+                projects = self.list_projects()
+                if not projects:
+                    raise FlowError("Nenhum projeto encontrado para geração.")
+                target_project_id = projects[0]["id"]
+
+            project_url = f"{BASE_URL}project/{target_project_id}"
+            self._goto(page, project_url)
+
+            # 2. Abre popup de configurações
+            chip_btn = page.get_by_role("button", name="Gatilho de configurações")
+            chip_btn.click(timeout=10000)
+
+            # 3. Seleciona tipo (Imagem ou Vídeo)
+            kind_label = "Imagem" if kind.lower() == "image" else "Vídeo"
+            page.get_by_role("radio", name=kind_label).click(force=True)
+
+            # 4. Aspecto
+            if aspect:
+                page.get_by_role("radio", name=aspect, exact=True).click(force=True)
+
+            # 5. Modelo
+            if model:
+                sel_btn = page.get_by_role("button", name="Selecionar família de modelos").first
+                sel_btn.click()
+                try:
+                    overlay = page.locator(".cdk-overlay-pane").last
+                    raw_text = overlay.inner_text() or ""
+                except Exception:
+                    raw_text = ""
+                if not raw_text.strip():
+                    try:
+                        raw_text = page.locator("body").inner_text() or ""
+                    except Exception:
+                        raw_text = ""
+
+                available_models = parse_model_names(raw_text)
+                clean_target = model.strip().lower()
+                matched_model = None
+                for candidate in available_models:
+                    if clean_target in candidate.lower():
+                        matched_model = candidate
+                        break
+
+                if not matched_model:
+                    page.keyboard.press("Escape")
+                    avail_str = ", ".join(f"'{m}'" for m in available_models)
+                    raise FlowError(f"Modelo '{model}' não encontrado. Disponíveis: {avail_str or 'nenhum'}")
+
+                # Clica no item do overlay cujo texto contenha o nome
+                item_locator = page.locator(".cdk-overlay-pane").last.locator(f"text={matched_model}").first
+                try:
+                    item_locator.click()
+                except Exception:
+                    page.locator(f"text={matched_model}").first.click()
+                time.sleep(1.0)
+
+            # 6. Opções específicas de vídeo
+            if kind.lower() == "video":
+                if resolution:
+                    try:
+                        page.get_by_role("radio", name=resolution, exact=True).click(force=True, timeout=3000)
+                    except Exception:
+                        pass
+                if duration:
+                    # '4s', '6s', '8s', '10s'
+                    try:
+                        page.get_by_role("radio", name=duration, exact=True).click(force=True, timeout=3000)
+                    except Exception:
+                        pass
+
+            # 7. Quantidade
+            if count:
+                page.get_by_role("radio", name=f"x{count}", exact=True).click(force=True)
+
+            # Espera 1.5s após o último clique de opção para UI atualizar
+            time.sleep(1.5)
+
+            # 8. Lê custo no popup de forma estável
+            try:
+                cost = self._read_generation_cost(page)
+            except Exception as exc:
+                page.keyboard.press("Escape")
+                raise FlowError(f"Falha ao ler custo de geração: {exc}")
+
+            # Fecha popup de configurações
+            page.keyboard.press("Escape")
+
+            # 9. Preenche prompt
+            prompt_box = page.get_by_role("textbox", name="O que você quer criar?")
+            prompt_box.fill(prompt)
+
+            # 10. Envia ou dry-run
+            if confirm:
+                self._submit_generation(page, confirm=True)
+                time.sleep(3)
+                submitted = True
+                dry_run = False
+            else:
+                prompt_box.fill("")
+                submitted = False
+                dry_run = True
+
+            result_dict = {
+                "kind": kind,
+                "project": target_project_id,
+                "model": model,
+                "aspect": aspect,
+                "count": count,
+                "cost": cost,
+                "submitted": submitted,
+                "dry_run": dry_run,
+            }
+            if kind.lower() == "video":
+                result_dict["resolution"] = resolution
+                result_dict["duration"] = duration
+
+            return result_dict
+
+        except Exception as exc:
+            if isinstance(exc, FlowError):
+                raise
+            raise FlowError(f"Erro ao gerar {kind}: {exc}")
