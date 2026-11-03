@@ -20,19 +20,28 @@ playwright install chromium
 
 Todos os comandos aceitam `--json` global para saída estruturada em JSON.
 
-Comandos da versão 0.1 (*auth implementado na Fatia 2*):
+Comandos da versão 0.1 (todos implementados):
 
 - `flow auth login`: abre o navegador para login manual no Google Flow
 - `flow auth status`: status da autenticação/perfil
 - `flow auth logout [--yes]`: encerra a sessão ativa e remove o diretório do perfil
-- `flow projects list` *(stub)*: lista projetos
-- `flow projects create <nome>` *(stub)*: cria novo projeto
-- `flow projects open <id>` *(stub)*: abre projeto no navegador
-- `flow models list [--kind image|video]` *(stub)*: lista modelos disponíveis
-- `flow credits` *(stub)*: exibe saldo de créditos
-- `flow media list [--project ID] [--kind image|video]` *(stub)*: lista mídias geradas
-- `flow media download <id> [--out DIR]` *(stub)*: baixa mídia por ID
-- `flow generate image "<prompt>" [--aspect ...] [--model ...] [--count 1-4] [--project ID] [--yes]` *(stub)*: gera imagem (exige `--yes` para confirmar consumo de créditos)
-- `flow generate video "<prompt>" [--aspect ...] [--model ...] [--resolution 360p|720p] [--duration 4|6|8|10] [--count 1-4] [--project ID] [--yes]` *(stub)*: gera vídeo (exige `--yes` para confirmar consumo de créditos)
-- `flow repl` *(stub)*: modo interativo
+- `flow projects list`: lista projetos
+- `flow projects create <nome>`: cria novo projeto
+- `flow projects open <id> [--browser]`: imprime a URL do projeto (e abre no navegador com `--browser`)
+- `flow models list [--kind image|video]`: lista modelos disponíveis
+- `flow credits`: exibe saldo de créditos
+- `flow media list [--project ID] [--kind image|video]`: lista mídias geradas
+- `flow media download <id> [--out DIR] [--project ID]`: baixa mídia por ID
+- `flow generate image "<prompt>" [--aspect ...] [--model ...] [--count 1-4] [--project ID] [--yes]`: gera imagem (exige `--yes` para confirmar consumo de créditos)
+- `flow generate video "<prompt>" [--aspect ...] [--model ...] [--resolution 360p|720p] [--duration 4|6|8|10] [--count 1-4] [--project ID] [--yes]`: gera vídeo (exige `--yes` para confirmar consumo de créditos)
+- `flow repl`: modo interativo
 
+
+## Testes
+
+```bash
+.venv/bin/pytest -q                 # unitários (sem rede/navegador)
+FLOW_CLI_LIVE=1 .venv/bin/pytest -m live -q   # integração ao vivo (somente leitura, opt-in)
+```
+
+Os testes `live` usam o perfil logado em `~/.config/flow-cli/profile`, só leem (auth, credits, projects, models, media) e nunca geram mídia.

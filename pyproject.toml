@@ -23,3 +23,6 @@ flow = "flow_cli.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = ["live: integração ao vivo contra o Google Flow (opt-in via FLOW_CLI_LIVE=1)"]
