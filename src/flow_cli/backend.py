@@ -121,11 +121,15 @@ class PlaywrightBackend(Backend):
         self.profile_path.mkdir(parents=True, exist_ok=True)
 
         self._playwright = sync_playwright().start()
-        self._context = self._playwright.chromium.launch_persistent_context(
-            user_data_dir=str(self.profile_path),
-            headless=is_headless,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
-        )
+        launch_kwargs: dict[str, Any] = {
+            "user_data_dir": str(self.profile_path),
+            "headless": is_headless,
+            "args": ["--no-sandbox", "--disable-dev-shm-usage"],
+        }
+        if shutil.which("google-chrome") or shutil.which("google-chrome-stable"):
+            launch_kwargs["channel"] = "chrome"
+            launch_kwargs["ignore_default_args"] = ["--password-store=basic"]
+        self._context = self._playwright.chromium.launch_persistent_context(**launch_kwargs)
         if self._context.pages:
             self._page = self._context.pages[0]
         else:
@@ -141,6 +145,13 @@ class PlaywrightBackend(Backend):
         except Exception:
             pass
         time.sleep(2)
+        try:
+            btn = page.get_by_role("button", name=re.compile(r"Crie com o Google Flow|Create with Google Flow", re.I))
+            if btn.count() > 0 and btn.first.is_visible():
+                btn.first.click(timeout=5000)
+                time.sleep(3)
+        except Exception:
+            pass
 
     def is_logged_in(self) -> bool:
         """Verifica login acessando a URL base no modo headless."""
